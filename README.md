@@ -1,12 +1,12 @@
 # ChatGPT Prompt Manager
 
-This is a simple web application that allows you to manage your ChatGPT prompts.
+This web application allows you to manage your ChatGPT prompts and compare their responses to the same user message.
 
 ## Features
 
 - Add, edit, and delete prompts
-- Import and export prompts
-- Chat with your prompts
+- Future: Import and export prompts
+- Chat with all your prompts simultaneously
 
 ## Usage
 
@@ -17,9 +17,7 @@ This is a simple web application that allows you to manage your ChatGPT prompts.
 
 ## API Key
 
-1. Create a `.env` file in the root of the project
-2. Add your OpenAI API key to the `.env` file
-3. Run `npm run dev` to start the development server
+Create a '/public/api-key.txt' file with your OpenAI API key.
 
 ## Prompts
 
