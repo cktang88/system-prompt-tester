@@ -1,11 +1,6 @@
 import { useState, useEffect } from "react";
 import type { SystemPrompt, Conversation, Message } from "./types";
 import { callOpenAI } from "./openai";
-import {
-  loadPromptsFromDirectory,
-  generatePromptFileContent,
-  generateManifestContent,
-} from "./promptManager";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,6 +11,27 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+
+// localStorage functions for prompts
+const STORAGE_KEY = "system-prompts";
+
+const loadPromptsFromStorage = (): SystemPrompt[] => {
+  try {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored ? JSON.parse(stored) : [];
+  } catch (error) {
+    console.error("Failed to load prompts from localStorage:", error);
+    return [];
+  }
+};
+
+const savePromptsToStorage = (prompts: SystemPrompt[]) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(prompts));
+  } catch (error) {
+    console.error("Failed to save prompts to localStorage:", error);
+  }
+};
 
 function App() {
   const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
@@ -33,28 +49,24 @@ function App() {
   const [editPromptText, setEditPromptText] = useState("");
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
-  // Load prompts from directory on startup
+  // Load prompts from localStorage on startup
   useEffect(() => {
-    const loadPrompts = async () => {
-      try {
-        const prompts = await loadPromptsFromDirectory();
-        setSystemPrompts(prompts);
-        setConversations(
-          prompts.map((prompt) => ({
-            promptId: prompt.id,
-            messages: [],
-            isLoading: false,
-          }))
-        );
-      } catch (error) {
-        console.error("Failed to load prompts:", error);
-        setError("Failed to load prompts from directory");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadPrompts();
+    try {
+      const prompts = loadPromptsFromStorage();
+      setSystemPrompts(prompts);
+      setConversations(
+        prompts.map((prompt) => ({
+          promptId: prompt.id,
+          messages: [],
+          isLoading: false,
+        }))
+      );
+    } catch (error) {
+      console.error("Failed to load prompts:", error);
+      setError("Failed to load prompts from storage");
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
   // Helper function to get all unique user messages
@@ -124,6 +136,7 @@ function App() {
     );
 
     setSystemPrompts(updatedPrompts);
+    savePromptsToStorage(updatedPrompts);
     setIsEditDialogOpen(false);
     setEditingPrompt(null);
     setEditPromptName("");
@@ -150,7 +163,10 @@ function App() {
       prompt: newPromptText.trim(),
     };
 
-    setSystemPrompts([...systemPrompts, newPrompt]);
+    const updatedPrompts = [...systemPrompts, newPrompt];
+    setSystemPrompts(updatedPrompts);
+    savePromptsToStorage(updatedPrompts);
+
     setConversations([
       ...conversations,
       {
@@ -162,44 +178,26 @@ function App() {
     setNewPromptName("");
     setNewPromptText("");
     setError(null);
-
-    // Show instructions for saving the prompt
-    const filename = `${newPrompt.id}.txt`;
-    const content = generatePromptFileContent(newPrompt);
-    console.log(
-      `\n📁 To save this prompt permanently, create: public/prompts/${filename}`
-    );
-    console.log("📄 Content:");
-    console.log(content);
-    console.log(
-      "\n📋 Then update public/prompts/manifest.json to include:",
-      filename
-    );
   };
 
   const removeSystemPrompt = (id: string) => {
-    setSystemPrompts(systemPrompts.filter((p) => p.id !== id));
+    const updatedPrompts = systemPrompts.filter((p) => p.id !== id);
+    setSystemPrompts(updatedPrompts);
+    savePromptsToStorage(updatedPrompts);
     setConversations(conversations.filter((c) => c.promptId !== id));
   };
 
   const exportAllPrompts = () => {
-    console.log("\n🗂️  EXPORT ALL PROMPTS");
-    console.log("=".repeat(50));
-
-    systemPrompts.forEach((prompt) => {
-      const filename = `${prompt.id}.txt`;
-      const content = generatePromptFileContent(prompt);
-      console.log(`\n📁 File: public/prompts/${filename}`);
-      console.log("📄 Content:");
-      console.log(content);
-      console.log("-".repeat(30));
-    });
-
-    const allFilenames = systemPrompts.map((p) => `${p.id}.txt`);
-    const manifestContent = generateManifestContent(allFilenames);
-    console.log("\n📋 Update public/prompts/manifest.json:");
-    console.log(manifestContent);
-    console.log("\n✅ Copy the above content to save all prompts permanently!");
+    const dataStr = JSON.stringify(systemPrompts, null, 2);
+    const dataBlob = new Blob([dataStr], { type: "application/json" });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "system-prompts.json";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const sendMessage = async () => {
@@ -214,26 +212,28 @@ function App() {
       content: userInput.trim(),
     };
 
-    // Add user message to all conversations
-    setConversations((prevConversations) =>
-      prevConversations.map((conv) => ({
+    // Add user message to all conversations and get the updated conversations
+    let updatedConversations: Conversation[] = [];
+    setConversations((prevConversations) => {
+      updatedConversations = prevConversations.map((conv) => ({
         ...conv,
         messages: [...conv.messages, userMessage],
         isLoading: true,
-      }))
-    );
+      }));
+      return updatedConversations;
+    });
 
     setUserInput("");
     setError(null);
 
-    // Call OpenAI for each system prompt
+    // Call OpenAI for each system prompt using the updated conversations
     const promises = systemPrompts.map(async (prompt) => {
       try {
-        const conversation = conversations.find(
+        const conversation = updatedConversations.find(
           (c) => c.promptId === prompt.id
         );
         const messages = conversation
-          ? [...conversation.messages, userMessage]
+          ? [...conversation.messages]
           : [userMessage];
 
         const response = await callOpenAI(prompt.prompt, messages);
@@ -423,53 +423,58 @@ function App() {
 
           {/* Right Panel - System Prompts and Responses */}
           <div className="flex-1 overflow-y-auto">
-            {selectedMessageIndex !== null &&
-            selectedMessageIndex < userMessages.length ? (
-              <div className="p-4">
-                <div className="mb-4">
-                  <h2 className="text-lg font-semibold mb-2">
-                    Responses to: "{userMessages[selectedMessageIndex].content}"
-                  </h2>
-                </div>
-                <div className="space-y-4">
-                  {systemPrompts.map((prompt) => {
-                    const response = getMostRecentResponse(
-                      prompt.id,
-                      selectedMessageIndex
-                    );
-                    const conversation = conversations.find(
-                      (c) => c.promptId === prompt.id
-                    );
-                    const isLoading = conversation?.isLoading || false;
+            <div className="p-4">
+              <div className="mb-4">
+                <h2 className="text-lg font-semibold mb-2">
+                  {selectedMessageIndex !== null &&
+                  selectedMessageIndex < userMessages.length
+                    ? `Responses to: "${userMessages[selectedMessageIndex].content}"`
+                    : "System Prompts"}
+                </h2>
+              </div>
+              <div className="space-y-4">
+                {systemPrompts.map((prompt) => {
+                  const response =
+                    selectedMessageIndex !== null &&
+                    selectedMessageIndex < userMessages.length
+                      ? getMostRecentResponse(prompt.id, selectedMessageIndex)
+                      : null;
+                  const conversation = conversations.find(
+                    (c) => c.promptId === prompt.id
+                  );
+                  const isLoading = conversation?.isLoading || false;
 
-                    return (
-                      <Card key={prompt.id}>
-                        <CardHeader>
-                          <div className="flex justify-between items-start">
-                            <CardTitle className="text-lg">
-                              {prompt.name}
-                            </CardTitle>
-                            <div className="space-x-2">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => openEditDialog(prompt)}
-                              >
-                                Edit
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removeSystemPrompt(prompt.id)}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                Remove
-                              </Button>
-                            </div>
+                  return (
+                    <Card key={prompt.id}>
+                      <CardHeader>
+                        <div className="flex justify-between items-start">
+                          <CardTitle className="text-lg">
+                            {prompt.name}
+                          </CardTitle>
+                          <div className="space-x-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openEditDialog(prompt)}
+                            >
+                              Edit
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => removeSystemPrompt(prompt.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              Remove
+                            </Button>
                           </div>
-                        </CardHeader>
-                        <CardContent>
-                          {isLoading ? (
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        {selectedMessageIndex !== null &&
+                        selectedMessageIndex < userMessages.length ? (
+                          // Show responses when a message is selected
+                          isLoading ? (
                             <div className="p-4 bg-yellow-100 text-yellow-900 rounded text-sm">
                               <strong>Assistant:</strong> Thinking...
                             </div>
@@ -481,39 +486,35 @@ function App() {
                             <div className="p-4 bg-muted/50 rounded text-sm text-muted-foreground">
                               No response yet
                             </div>
-                          )}
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
+                          )
+                        ) : (
+                          // Show placeholder when no message is selected
+                          <div className="p-4 bg-muted/30 rounded text-sm text-muted-foreground">
+                            {userMessages.length === 0
+                              ? "Send a message to see responses from this prompt"
+                              : "Select a message from the left to see responses"}
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  );
+                })}
               </div>
-            ) : (
-              <div className="flex items-center justify-center h-full">
-                <div className="text-center text-muted-foreground">
-                  <p className="text-lg">
-                    Select a message from the left sidebar
-                  </p>
-                  <p className="text-sm">to see system prompt responses</p>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         </div>
       ) : (
         <div className="flex items-center justify-center h-full">
           <div className="text-center py-12">
             <p className="text-muted-foreground text-lg">
-              {isLoading
-                ? "Loading prompts..."
-                : "No prompts found in /prompts directory"}
+              {isLoading ? "Loading prompts..." : "No system prompts added yet"}
             </p>
             <p className="text-sm text-muted-foreground mt-2">
-              Add prompts to <code>public/prompts/</code> and update{" "}
-              <code>manifest.json</code>
+              Add a system prompt above to get started!
             </p>
             <p className="text-sm text-muted-foreground mt-1">
-              Or add a new prompt above to get started!
+              Your prompts will be automatically saved to your browser's
+              storage.
             </p>
           </div>
         </div>

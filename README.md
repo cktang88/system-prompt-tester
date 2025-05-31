@@ -23,10 +23,7 @@ This is a simple web application that allows you to manage your ChatGPT prompts.
 
 ## Prompts
 
-1. Create a `public/prompts` directory in the root of the project
-2. Create a `public/prompts/manifest.json` file.
-3. Can manually add prompts to the `public/prompts` directory or add them in the UI.
-4. Run `npm run dev` to start the development server
+Stored in local storage.
 
 ## License
 
