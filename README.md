@@ -5,7 +5,7 @@ This web application allows you to manage your ChatGPT prompts and compare their
 ## Features
 
 - Add, edit, and delete prompts
-- Future: Import and export prompts
+- Export all prompts as JSON file.
 - Chat with all your prompts simultaneously
 
 ## Usage
@@ -17,11 +17,11 @@ This web application allows you to manage your ChatGPT prompts and compare their
 
 ## API Key
 
-Create a '/public/api-key.txt' file with your OpenAI API key.
+Create a `/public/api-key.txt` file with your OpenAI API key.
 
 ## Prompts
 
-Stored in local storage.
+Stored in local storage, can be exported as JSON file.
 
 ## License
 
