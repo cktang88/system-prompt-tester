@@ -10,6 +10,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 function App() {
   const [systemPrompts, setSystemPrompts] = useState<SystemPrompt[]>([]);
@@ -19,6 +25,13 @@ function App() {
   const [newPromptText, setNewPromptText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedMessageIndex, setSelectedMessageIndex] = useState<
+    number | null
+  >(null);
+  const [editingPrompt, setEditingPrompt] = useState<SystemPrompt | null>(null);
+  const [editPromptName, setEditPromptName] = useState("");
+  const [editPromptText, setEditPromptText] = useState("");
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
 
   // Load prompts from directory on startup
   useEffect(() => {
@@ -43,6 +56,86 @@ function App() {
 
     loadPrompts();
   }, []);
+
+  // Helper function to get all unique user messages
+  const getAllUserMessages = (): Message[] => {
+    const userMessages: Message[] = [];
+    if (conversations.length > 0) {
+      const firstConversation = conversations[0];
+      firstConversation.messages.forEach((message) => {
+        if (message.role === "user") {
+          userMessages.push(message);
+        }
+      });
+    }
+    return userMessages;
+  };
+
+  // Helper function to get the most recent assistant response for a prompt and message index
+  const getMostRecentResponse = (
+    promptId: string,
+    messageIndex: number
+  ): string | null => {
+    const conversation = conversations.find((c) => c.promptId === promptId);
+    if (!conversation) return null;
+
+    // Find the assistant message that follows the user message at messageIndex
+    const userMessageCount = conversation.messages.filter(
+      (m) => m.role === "user"
+    ).length;
+    if (messageIndex >= userMessageCount) return null;
+
+    // Find the assistant response that comes after the user message at messageIndex
+    let userCount = 0;
+    for (let i = 0; i < conversation.messages.length; i++) {
+      const message = conversation.messages[i];
+      if (message.role === "user") {
+        if (userCount === messageIndex) {
+          // Look for the next assistant message
+          for (let j = i + 1; j < conversation.messages.length; j++) {
+            if (conversation.messages[j].role === "assistant") {
+              return conversation.messages[j].content;
+            }
+          }
+          return null;
+        }
+        userCount++;
+      }
+    }
+    return null;
+  };
+
+  // Edit prompt functions
+  const openEditDialog = (prompt: SystemPrompt) => {
+    setEditingPrompt(prompt);
+    setEditPromptName(prompt.name);
+    setEditPromptText(prompt.prompt);
+    setIsEditDialogOpen(true);
+  };
+
+  const saveEditedPrompt = () => {
+    if (!editingPrompt || !editPromptName.trim() || !editPromptText.trim())
+      return;
+
+    const updatedPrompts = systemPrompts.map((p) =>
+      p.id === editingPrompt.id
+        ? { ...p, name: editPromptName.trim(), prompt: editPromptText.trim() }
+        : p
+    );
+
+    setSystemPrompts(updatedPrompts);
+    setIsEditDialogOpen(false);
+    setEditingPrompt(null);
+    setEditPromptName("");
+    setEditPromptText("");
+  };
+
+  const cancelEdit = () => {
+    setIsEditDialogOpen(false);
+    setEditingPrompt(null);
+    setEditPromptName("");
+    setEditPromptText("");
+  };
 
   const addSystemPrompt = () => {
     if (!newPromptName.trim() || !newPromptText.trim()) return;
@@ -195,139 +288,220 @@ function App() {
     );
   }
 
+  const userMessages = getAllUserMessages();
+
   return (
-    <div className="min-h-screen bg-background p-4">
-      <div className="max-w-7xl mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-3xl font-bold text-foreground">
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="border-b p-4">
+        <div className="max-w-7xl mx-auto flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-foreground">
             System Prompt Comparison Tool
           </h1>
-          {systemPrompts.length > 0 && (
-            <Button onClick={exportAllPrompts} variant="outline">
-              Export All Prompts
-            </Button>
-          )}
+          <div className="space-x-2">
+            {systemPrompts.length > 0 && (
+              <Button onClick={exportAllPrompts} variant="outline" size="sm">
+                Export All Prompts
+              </Button>
+            )}
+          </div>
         </div>
+      </div>
 
-        {error && (
-          <Card className="mb-6 border-destructive">
+      {error && (
+        <div className="p-4 max-w-7xl mx-auto">
+          <Card className="border-destructive">
             <CardContent className="pt-6">
               <p className="text-destructive">{error}</p>
             </CardContent>
           </Card>
-        )}
+        </div>
+      )}
 
-        {/* Add System Prompt */}
-        <Card className="mb-6">
-          <CardHeader>
-            <CardTitle>Add System Prompt ({systemPrompts.length}/10)</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Input
-              value={newPromptName}
-              onChange={(e) => setNewPromptName(e.target.value)}
-              placeholder="Prompt name"
-            />
-            <Textarea
-              value={newPromptText}
-              onChange={(e) => setNewPromptText(e.target.value)}
-              placeholder="System prompt text"
-              rows={3}
-            />
-            <Button
-              onClick={addSystemPrompt}
-              disabled={systemPrompts.length >= 10}
-            >
-              Add Prompt
-            </Button>
-          </CardContent>
-        </Card>
-
-        {/* User Input */}
-        {systemPrompts.length > 0 && (
-          <Card className="mb-6">
+      {/* Add System Prompt */}
+      <div className="p-4 border-b bg-muted/30">
+        <div className="max-w-7xl mx-auto">
+          <Card>
             <CardHeader>
-              <CardTitle>Send Message to All Prompts</CardTitle>
+              <CardTitle className="text-lg">
+                Add System Prompt ({systemPrompts.length}/10)
+              </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="flex space-x-4">
-                <Input
-                  value={userInput}
-                  onChange={(e) => setUserInput(e.target.value)}
-                  placeholder="Type your message here..."
-                  className="flex-1"
-                  onKeyPress={(e) => e.key === "Enter" && sendMessage()}
-                />
-                <Button
-                  onClick={sendMessage}
-                  disabled={
-                    !userInput.trim() || conversations.some((c) => c.isLoading)
-                  }
-                >
-                  Send
-                </Button>
-              </div>
+            <CardContent className="space-y-4">
+              <Input
+                value={newPromptName}
+                onChange={(e) => setNewPromptName(e.target.value)}
+                placeholder="Prompt name"
+              />
+              <Textarea
+                value={newPromptText}
+                onChange={(e) => setNewPromptText(e.target.value)}
+                placeholder="System prompt text"
+                rows={3}
+              />
+              <Button
+                onClick={addSystemPrompt}
+                disabled={systemPrompts.length >= 10}
+              >
+                Add Prompt
+              </Button>
             </CardContent>
           </Card>
-        )}
+        </div>
+      </div>
 
-        {/* Conversations Grid */}
-        {systemPrompts.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {systemPrompts.map((prompt) => {
-              const conversation = conversations.find(
-                (c) => c.promptId === prompt.id
-              );
-              return (
-                <Card key={prompt.id}>
-                  <CardHeader>
-                    <div className="flex justify-between items-start">
-                      <CardTitle className="text-lg">{prompt.name}</CardTitle>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeSystemPrompt(prompt.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                    <div className="p-2 bg-muted rounded text-sm text-muted-foreground">
-                      <strong>System:</strong> {prompt.prompt}
-                    </div>
-                  </CardHeader>
-
-                  <CardContent>
-                    <div className="space-y-2 max-h-96 overflow-y-auto">
-                      {conversation?.messages.map((message, index) => (
-                        <div
-                          key={index}
-                          className={`p-2 rounded text-sm ${
-                            message.role === "user"
-                              ? "bg-primary/10 text-primary-foreground"
-                              : "bg-muted text-muted-foreground"
-                          }`}
-                        >
-                          <strong>
-                            {message.role === "user" ? "You" : "Assistant"}:
-                          </strong>{" "}
-                          {message.content}
-                        </div>
-                      ))}
-                      {conversation?.isLoading && (
-                        <div className="p-2 bg-yellow-100 text-yellow-900 rounded text-sm">
-                          <strong>Assistant:</strong> Thinking...
-                        </div>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+      {/* User Input */}
+      {systemPrompts.length > 0 && (
+        <div className="p-4 border-b bg-muted/30">
+          <div className="max-w-7xl mx-auto">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">
+                  Send Message to All Prompts
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex space-x-4">
+                  <Input
+                    value={userInput}
+                    onChange={(e) => setUserInput(e.target.value)}
+                    placeholder="Type your message here..."
+                    className="flex-1"
+                    onKeyPress={(e) => e.key === "Enter" && sendMessage()}
+                  />
+                  <Button
+                    onClick={sendMessage}
+                    disabled={
+                      !userInput.trim() ||
+                      conversations.some((c) => c.isLoading)
+                    }
+                  >
+                    Send
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        )}
+        </div>
+      )}
 
-        {systemPrompts.length === 0 && (
+      {/* Main Content Area */}
+      {systemPrompts.length > 0 ? (
+        <div className="flex flex-1 min-h-0">
+          {/* Left Sidebar - User Messages */}
+          <div className="w-80 border-r bg-muted/20 flex flex-col">
+            <div className="p-4 border-b">
+              <h2 className="text-lg font-semibold">Your Messages</h2>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {userMessages.length === 0 ? (
+                <div className="p-4 text-center text-muted-foreground">
+                  No messages yet. Send a message to get started!
+                </div>
+              ) : (
+                <div className="space-y-2 p-4">
+                  {userMessages.map((message, index) => (
+                    <div
+                      key={index}
+                      className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                        selectedMessageIndex === index
+                          ? "bg-primary/10 border-primary"
+                          : "bg-background hover:bg-muted/50"
+                      }`}
+                      onClick={() => setSelectedMessageIndex(index)}
+                    >
+                      <p className="text-sm font-medium text-muted-foreground mb-1">
+                        Message {index + 1}
+                      </p>
+                      <p className="text-sm line-clamp-3">{message.content}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Right Panel - System Prompts and Responses */}
+          <div className="flex-1 overflow-y-auto">
+            {selectedMessageIndex !== null &&
+            selectedMessageIndex < userMessages.length ? (
+              <div className="p-4">
+                <div className="mb-4">
+                  <h2 className="text-lg font-semibold mb-2">
+                    Responses to: "{userMessages[selectedMessageIndex].content}"
+                  </h2>
+                </div>
+                <div className="space-y-4">
+                  {systemPrompts.map((prompt) => {
+                    const response = getMostRecentResponse(
+                      prompt.id,
+                      selectedMessageIndex
+                    );
+                    const conversation = conversations.find(
+                      (c) => c.promptId === prompt.id
+                    );
+                    const isLoading = conversation?.isLoading || false;
+
+                    return (
+                      <Card key={prompt.id}>
+                        <CardHeader>
+                          <div className="flex justify-between items-start">
+                            <CardTitle className="text-lg">
+                              {prompt.name}
+                            </CardTitle>
+                            <div className="space-x-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openEditDialog(prompt)}
+                              >
+                                Edit
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removeSystemPrompt(prompt.id)}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          {isLoading ? (
+                            <div className="p-4 bg-yellow-100 text-yellow-900 rounded text-sm">
+                              <strong>Assistant:</strong> Thinking...
+                            </div>
+                          ) : response ? (
+                            <div className="p-4 bg-muted rounded text-sm">
+                              <strong>Assistant:</strong> {response}
+                            </div>
+                          ) : (
+                            <div className="p-4 bg-muted/50 rounded text-sm text-muted-foreground">
+                              No response yet
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center justify-center h-full">
+                <div className="text-center text-muted-foreground">
+                  <p className="text-lg">
+                    Select a message from the left sidebar
+                  </p>
+                  <p className="text-sm">to see system prompt responses</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-full">
           <div className="text-center py-12">
             <p className="text-muted-foreground text-lg">
               {isLoading
@@ -342,8 +516,47 @@ function App() {
               Or add a new prompt above to get started!
             </p>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {/* Edit Prompt Dialog */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Edit System Prompt</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                Name
+              </label>
+              <Input
+                value={editPromptName}
+                onChange={(e) => setEditPromptName(e.target.value)}
+                placeholder="Prompt name"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-muted-foreground">
+                System Prompt
+              </label>
+              <Textarea
+                value={editPromptText}
+                onChange={(e) => setEditPromptText(e.target.value)}
+                placeholder="System prompt text"
+                rows={8}
+                className="resize-none"
+              />
+            </div>
+          </div>
+          <div className="flex justify-end space-x-2 pt-4">
+            <Button variant="outline" onClick={cancelEdit}>
+              Cancel
+            </Button>
+            <Button onClick={saveEditedPrompt}>Save Changes</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
